@@ -17,12 +17,14 @@ VALID_EDGES = {
 
 # Load nodes into a dictionary for quick lookup
 # Assumes nodes.tsv is in the same directory as python file
-nodes_df = pd.read_csv("nodes.tsv", sep="\t")
+#nodes_df = pd.read_csv("nodes.tsv", sep="\t")
+nodes_df = pd.read_csv("sample_nodes.tsv", sep="\t")
 nodes_dict = nodes_df.set_index("id").to_dict(orient="index")
 
 # Load edges and filter only relevant ones
 # Assumes edges.tsv is in the same directory as python file
-edges_df = pd.read_csv("edges.tsv", sep="\t")
+#edges_df = pd.read_csv("edges.tsv", sep="\t")
+edges_df = pd.read_csv("sample_edges.tsv", sep="\t")
 edges_df = edges_df[edges_df["metaedge"].isin(VALID_EDGES.keys())]
 
 # Create a dictionary to store the connections for each node
