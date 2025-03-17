@@ -1,20 +1,10 @@
 from neo4j import GraphDatabase
-
-'''
-Given a disease ID:
-    * What is its name?
-    * What are drug names that can treat or palliate this disease?
-    * What are gene names that cause this disease?
-    * Where does this disease occur?
-'''
-def createDatabase(driver, database_name):
-    driver.execute_query(f"CREATE DATABASE {database_name}")
-
-
+import tkinter as tk
+from tkinter import simpledialog, messagebox, scrolledtext, Toplevel
 
 def createDatabaseNodes(session):
     
-    def createIndexQuery(label): 
+    def createIndexQuery(label):
         
         return f"""
             CREATE INDEX FOR (n:{label}) ON (n.id)
@@ -53,42 +43,52 @@ def createDatabaseNodes(session):
     """
 
     labels = ['Compound', 'Gene', 'Anatomy', 'Disease']
-    #for i in labels:
-        #session.run(createIndexQuery(i))
+    for i in labels:
+        session.run(createIndexQuery(i))
     session.run(nodesQuery)
     session.run(relationshipsQuery)
 
-def getDiseaseQuery(session, diseaseId):
+def getDiseaseQuery(session):
+    diseaseId = simpledialog.askstring("Input", "Enter Disease ID:")
+    if diseaseId is None:
+        return
+
     query = """
-        MATCH (d:Disease {id: '""" + diseaseId + """'})
+        MATCH (d:Disease {id: $diseaseId})
         OPTIONAL MATCH (c:Compound)-[:TREATS|PALLIATES]->(d)
         OPTIONAL MATCH (d)-[:ASSOCIATES]->(g:Gene)
-        OPTIONAL MATCH (d)-[LOCALIZES]->(a:Anatomy)
-        RETURN d.name, collect(DISTINCT c.name) AS drug_names, collect(DISTINCT g.name) AS gene_names, collect(DISTINCT a.name) AS disease_locations
+        OPTIONAL MATCH (d)-[:LOCALIZES]->(a:Anatomy)
+        RETURN d.name AS disease_name, collect(DISTINCT c.name) AS drug_names, collect(DISTINCT g.name) AS gene_names, collect(DISTINCT a.name) AS disease_locations
     """
 
-    return session.run(query)
+    result = session.run(query, diseaseId=diseaseId)
 
-driver = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'bigdatatechnology'))
-session = driver.session()
+    output = ""
+    foundResult = False
+    for record in result:
+        foundResult = True
+        diseaseName = record["disease_name"]
+        drugNames = record["drug_names"]
+        geneNames = record["gene_names"]
+        diseaseLocations = record["disease_locations"]
 
-#createDatabaseNodes(session)
+        output += f"Disease Name: {diseaseName}\n"
+        output += f"Compounds (Treat/Palliate): {', '.join(drugNames) if drugNames else 'None'}\n"
+        output += f"Associated Genes: {', '.join(geneNames) if geneNames else 'None'}\n"
+        output += f"Localized Anatomy: {', '.join(diseaseLocations) if diseaseLocations else 'None'}\n"
 
-diseaseId = input("Enter Disease ID: ")
-diseaseDetails = [record['d.name'] for record in getDiseaseQuery(session, diseaseId)]
-for i in diseaseDetails:
-    print(i)
+    if foundResult:
+        messagebox.showinfo("Query Result", output)
+    else:
+        messagebox.showinfo("Query Result", f"No information found for Disease ID: {diseaseId}")
 
-'''
-Find all compounds that can treat a NEW DISEASE
-A compound can treat a new disease if:
-    * The compound up-regulates/down-regulates a gene
-    * The location of the disease down-regulates/up-regulates the gene respectively
-'''
+def findCompoundForDisease(session):
+    diseaseId = simpledialog.askstring("Input", "Enter Disease ID:")
+    if diseaseId is None:
+        return
 
-def findCompoundForDisease(session, diseaseId):
     query = """
-        MATCH (d:Disease {id: '""" + diseaseId + """'})
+        MATCH (d:Disease {id: $diseaseId})
         MATCH (c:Compound)-[r1:UPREGULATES|DOWNREGULATES]->(g:Gene)
         MATCH (d)-[:LOCALIZES]->(a:Anatomy)
         MATCH (a)-[r2:DOWNREGULATES|UPREGULATES]->(g)
@@ -96,14 +96,48 @@ def findCompoundForDisease(session, diseaseId):
             ((type(r1) = 'UPREGULATES' AND type(r2) = 'DOWNREGULATES') OR
             (type(r1) = 'DOWNREGULATES' AND type(r2) = 'UPREGULATES')) AND
             NOT EXISTS { (c)-[:TREATS]->(d) }
-        RETURN DISTINCT c.name;
+        RETURN DISTINCT c.name AS compound_name;
     """
 
-    return session.run(query)
+    result = session.run(query, diseaseId=diseaseId)
 
-diseaseId = input("Enter Disease Id: ")
-potentialCompounds = [record["c.name"] for record in findCompoundForDisease(session, diseaseId)]
-for i in potentialCompounds:
-    print(i)
+    resultWindow = Toplevel(root)
+    resultWindow.title("Query Results")
+    resultWindow.geometry("600x400")
+
+    textArea = scrolledtext.ScrolledText(resultWindow, wrap=tk.WORD, width=70, height=20, font=("Arial", 10))
+    textArea.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+    output = "Compounds with New Potential Treatments:\n\n"
+    compounds_found = False
+    for record in result:
+        compounds_found = True
+        compound_name = record["compound_name"]
+        output += f"- {compound_name}\n"
+
+    if compounds_found:
+        textArea.insert(tk.END, output)
+    else:
+        textArea.insert(tk.END, f"No potential treatments found for Disease ID: {diseaseId}")
+
+    textArea.config(state=tk.DISABLED)
+
+driver = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'bigdatatechnology'))
+session = driver.session()
+
+createDatabaseNodes(session)
+
+root = tk.Tk()
+root.title("Database GUI")
+root.geometry("800x800")
+
+queryOneButton = tk.Button(root, text="Neo4j Query One", command=getDiseaseQuery(session), font=("Arial", 12), padx=10, pady=5)
+queryOneButton.pack(pady=50)
+
+queryTwoButton = tk.Button(root, text="Neo4j Query Two", command=findCompoundForDisease(session), font=("Arial", 12), padx=10, pady=5)
+queryTwoButton.pack(pady=10)
+
+root.mainloop()
+
 session.close()
 driver.close()
